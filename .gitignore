@@ -1,0 +1,12 @@
+# 模型文件、数据集、训练输出一律不入库
+*.safetensors
+*.safetensors.bak
+dataset/
+output/
+lora-training/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
