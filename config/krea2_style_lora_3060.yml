@@ -1,0 +1,75 @@
+# Krea2 风格 LoRA 训练配置 — RTX 3060 12G / 32G 内存 / ai-toolkit v0.13.43
+# 使用前把 <MODEL_ROOT> 和数据集路径改成你的真实路径
+# 必须配合: ① apply_patches.py 打过 4 补丁 ② AI_TOOLKIT_NO_PIN=1 环境变量（bat 已内置）
+
+job: extension
+config:
+  name: "krea2_style_lora"
+
+  process:
+    - type: 'sd_trainer'
+      training_folder: "output"
+      device: cuda:0
+
+      network:
+        type: "lora"
+        linear: 32          # rank 32
+        linear_alpha: 32
+
+      save:
+        dtype: float16
+        save_every: 250     # 每 250 步存档，中断可续
+        max_step_saves_to_keep: 4
+
+      datasets:
+        - folder_path: "<DATASET_DIR>"       # 训练集：图片 + 同名 .txt caption
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: [512, 768, 1024]
+
+      train:
+        batch_size: 1
+        # 缓存文本嵌入（一次性），缓存完卸载编码器省 4.5G 内存
+        # 依赖补丁 4（AI_TOOLKIT_NO_PIN）——没打补丁 4 开这个会崩
+        cache_text_embeddings: true
+        steps: 2500
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        timestep_type: "linear"
+        optimizer: "adamw8bit"
+        lr: 1e-4
+        dtype: bf16
+        do_differential_guidance: false
+        ema_config:
+          use_ema: false
+        disable_sampling: true   # 12G 卡训练中出样图容易挤爆显存，关
+
+      model:
+        # ⚠️ fp8 预量化底座（12.2G），不是 bf16 原版 raw.safetensors（26.3G）
+        name_or_path: "<MODEL_ROOT>/Krea-2-Raw/krea2_raw_fp8_scaled.safetensors"
+        arch: "krea2"
+        quantize: true
+        # 必须与文件实际量化后端一致（float8_e4m3fn）；
+        # 写 qfloat8 会触发反量化→内存爆
+        qtype: "float8_e4m3fn"
+        quantize_te: true
+        qtype_te: "qfloat8"      # quanto 后端（补丁 2 保证不被强转成 torchao）
+        low_vram: true
+        layer_offloading: true
+        # 0.8 = 80% 层留内存逐层搬运，20% 常驻显卡：
+        # 省内存防分页 + 减搬运。显存若 OOM 调回 0.9；64G 内存机器可试 0.6 提速
+        layer_offloading_transformer_percent: 0.8
+        model_kwargs:
+          text_encoder_path: "<MODEL_ROOT>/Qwen3-VL-4B-Instruct"
+          vae_path: "<MODEL_ROOT>/Qwen-Image-Vae"    # 必须是 diffusers 命名目录
+          edit: false
+          max_text_length: 512
+
+meta:
+  name: "krea2_style_lora"
+  version: '1.0'
